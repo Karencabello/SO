@@ -3,6 +3,7 @@
 
 // usage: gcc p1.c p1.h cicularBuffer.c circularBuffer.h -o p1
 // time -h ./p1 ... --> mirar el temps
+// ./p1 binary|text pathToFile sizeOfTheBuffer
 
 char istxt(int fd){
     // a tenir en compte: separats per coma
@@ -47,14 +48,43 @@ int isbin(int fd){
         }
     }
     free(buffer);
+    // no cal close, ho fa el main
     return sum;
 }
 
 //main
 int main(int argc, char* argv[]){
+    // Error check
+    if(argc != 4) return 1;
 
+    //1.obrir file --> CLI
+    const char *mode = argv[1];
+    const char *path = argv[2];
+    SIZE = atoi(argv[4]);
+
+    // Open file
+    int fd = open(path, O_RDONLY);
+    if(fd < 0) return 1;
+
+    long long result = 0;
+    //2. mirar si es txt o bin
+    // A) Text Case:
+    if (strcmp(mode, "text") == 0){
+        result = istxt(fd);
+    } else if (strcmp(mode, "text") == 0){
+    // B) Binary case:
+        result = isbin(fd);
+    }else{
+        //mode incorrecte
+        close(fd);
+        return 1;
+    }
+    close(fd);
+    //3. Escriure resultat
+    char out[64];
+    sprintf(out, "%lld\n", result); // crea text
+    write(STDOUT_FILENO, out, strlen(out)); // esciru
+    
+    return 0;
 }
-//1.obrir file --> CLI
-//2. mirar si es txt o bin
 
-// fer suma

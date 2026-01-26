@@ -2,9 +2,10 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <fcntl.h> 
 
 
-#define SIZE 64
+extern int SIZE;
 
 char istxt(int fd);
 int isbin(int fd);
