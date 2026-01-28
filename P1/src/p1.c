@@ -7,7 +7,7 @@
 
 int SIZE = 1024;
 
-int istxt(int fd){
+long long istxt(int fd){
     //creem el buffer circular
     CircularBuffer cb;
     buffer_init(&cb, SIZE);
@@ -17,6 +17,7 @@ int istxt(int fd){
 
     long long sum = 0;
     int reachedEOF = 0; //si 0 = no EOF, si 1 = EOF
+    int elem_size;
 
     //creem loop (while true)
     while(1){
@@ -31,21 +32,20 @@ int istxt(int fd){
             break;
         }
 
-        //push al circular buffer
+        //push al buffer circular
         for(int i = 0; i<n; i++){
             if(buffer_free_bytes(&cb)>0){ //si el buffer circular no està ple
                 buffer_push(&cb, buffer[i]);
             }
         }
 
-        //processar els elements complets
-        while(1){
+        //processar els elements complets i restants
+        while((elem_size = buffer_size_next_element(&cb, ',', reachedEOF)) > 0){
             //busquem mida de l'element utilitzant ',' com a delimitador
-            int elem_size = buffer_size_next_element(&cb, ',', reachedEOF); 
+            //elem_size = buffer_size_next_element(&cb, ',', reachedEOF); 
 
             //error
             if(elem_size == -1){
-                perror("error (no delimiter and reachEOF = 0)");
                 break;
             }
 
@@ -59,10 +59,10 @@ int istxt(int fd){
             //eliminar coma
             num[elem_size - 1] = '\0';
 
-            sum += atoi(num);
+            sum += atoll(num); //atoll() per a evitar overflow (retorna long long)
         }
 
-        if(reachedEOF) break;
+        if(reachedEOF) break; //sortir del bucle principal
 
     }
 
@@ -71,7 +71,7 @@ int istxt(int fd){
 
 }
 
-int isbin(int fd){
+long long isbin(int fd){
     // 1. Mirem mides
     //Mida del element
     const int size_bin = sizeof(int);
