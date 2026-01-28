@@ -21,27 +21,29 @@ int istxt(int fd){
         //read
         ssize_t n = read(fd, buffer, size);
 
-        if(n == 0) reachedEOF = 1;
+        if(n == 0) reachedEOF = 1; //read() retorna n=0 quan EOF
         if(n<0){
             //error al llegir
+            //read() retorna n=-1 quan error
             perror("read");
             break;
         }
 
         //push al circular buffer
         for(int i = 0; i<n; i++){
-            if(buffer_free_bytes(&cb)>0){
+            if(buffer_free_bytes(&cb)>0){ //si el buffer circular no està ple
                 buffer_push(&cb, buffer[i]);
             }
         }
 
         //processar els elements complets
         while(1){
-            int elem_size = buffer_size_next_element(&cd, ',', reachedEOF);
+            //busquem mida de l'element utilitzant ',' com a delimitador
+            int elem_size = buffer_size_next_element(&cd, ',', reachedEOF); 
 
             //error
             if(elem_size == -1){
-                perror("elem_size error");
+                perror("error (no delimiter and reachEOF = 0)");
                 break;
             }
 
