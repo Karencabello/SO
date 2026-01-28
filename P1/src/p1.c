@@ -5,12 +5,65 @@
 // time -h ./p1 ... --> mirar el temps
 // ./p1 binary|text pathToFile sizeOfTheBuffer
 
-char istxt(int fd){
-    // a tenir en compte: separats per coma
-    // creiem q loop
-    // mirar si el buffer està ple per buidar-lo abans de seguir llegint
-    // Cridem a cicularbuffer
-    //read
+int istxt(int fd){
+    //creem el buffer circular
+    CircularBuffer cb;
+    buffer_init(&cb, SIZE);
+
+    //creem buffer lineal
+    char buffer[SIZE];
+
+    long long sum = 0;
+    int reachedEOF = 0; //si 0 = no EOF, si 1 = EOF
+
+    //creem loop (while true)
+    while(1){
+        //read
+        ssize_t n = read(fd, buffer, size);
+
+        if(n == 0) reachedEOF = 1;
+        if(n<0){
+            //error al llegir
+            perror("read");
+            break;
+        }
+
+        //push al circular buffer
+        for(int i = 0; i<n; i++){
+            if(buffer_free_bytes(&cb)>0){
+                buffer_push(&cb, buffer[i]);
+            }
+        }
+
+        //processar els elements complets
+        while(1){
+            int elem_size = buffer_size_next_element(&cd, ',', reachedEOF);
+
+            //error
+            if(elem_size == -1){
+                perror("elem_size error");
+                break;
+            }
+
+            char num[elem_size + 1];
+
+            //pop al circular buffer
+            for(int i = 0; i<elem_size; i++){
+                num[i] = buffer_pop(&cb);
+            }
+
+            //eliminar coma
+            num[elem_size - 1] = '\0';
+
+            sum += atoi(num);
+        }
+
+        if(reachedEOF) break;
+
+    }
+
+    buffer_deallocate(&cb);
+    return sum;
 
 }
 
@@ -33,6 +86,7 @@ int isbin(int fd){
         // read
         ssize_t n = read(fd, buffer, buf);
         if (n <= 0){
+            perror("read error"); //mostra error
             break;
         } // Error
 
@@ -60,7 +114,7 @@ int main(int argc, char* argv[]){
     //1.obrir file --> CLI
     const char *mode = argv[1];
     const char *path = argv[2];
-    SIZE = atoi(argv[4]);
+    SIZE = atoi(argv[3]);
 
     // Open file
     int fd = open(path, O_RDONLY);
@@ -69,9 +123,9 @@ int main(int argc, char* argv[]){
     long long result = 0;
     //2. mirar si es txt o bin
     // A) Text Case:
-    if (strcmp(mode, "text") == 0){
+    if (strcmp(mode, "text") == 0){   //strcmp(str1,str2) funció de <string.h> que compara dos cadenes de caracters
         result = istxt(fd);
-    } else if (strcmp(mode, "text") == 0){
+    } else if (strcmp(mode, "binary") == 0){    
     // B) Binary case:
         result = isbin(fd);
     }else{
