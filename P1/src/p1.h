@@ -8,6 +8,6 @@
 
 extern int SIZE;
 
-char istxt(int fd);
+int istxt(int fd);
 int isbin(int fd);
 int main(int argc, char* argv[]);

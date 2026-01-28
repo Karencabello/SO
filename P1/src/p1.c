@@ -19,7 +19,7 @@ int istxt(int fd){
     //creem loop (while true)
     while(1){
         //read
-        ssize_t n = read(fd, buffer, size);
+        ssize_t n = read(fd, buffer, SIZE);
 
         if(n == 0) reachedEOF = 1; //read() retorna n=0 quan EOF
         if(n<0){
@@ -39,7 +39,7 @@ int istxt(int fd){
         //processar els elements complets
         while(1){
             //busquem mida de l'element utilitzant ',' com a delimitador
-            int elem_size = buffer_size_next_element(&cd, ',', reachedEOF); 
+            int elem_size = buffer_size_next_element(&cb, ',', reachedEOF); 
 
             //error
             if(elem_size == -1){
