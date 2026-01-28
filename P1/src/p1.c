@@ -5,6 +5,8 @@
 // time -h ./p1 ... --> mirar el temps
 // ./p1 binary|text pathToFile sizeOfTheBuffer
 
+int SIZE = 1024;
+
 int istxt(int fd){
     //creem el buffer circular
     CircularBuffer cb;
