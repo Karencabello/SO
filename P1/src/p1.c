@@ -1,5 +1,5 @@
 #include "p1.h"
-#include "circularBuffer.c"
+#include "circularBuffer.h"
 
 // usage: gcc p1.c p1.h cicularBuffer.c circularBuffer.h -o p1
 // time -h ./p1 ... --> mirar el temps
