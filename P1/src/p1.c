@@ -13,7 +13,11 @@ long long istxt(int fd){
     buffer_init(&cb, SIZE);
 
     //creem buffer lineal
-    char buffer[SIZE];
+    char *buffer = malloc((size_t)SIZE);
+    if(!buffer){
+        buffer_deallocate(&cb);
+        return 0;
+    }
 
     long long sum = 0; //long long per evitar overflow
     int reachedEOF = 0; //si 0 = no EOF, si 1 = EOF
@@ -35,9 +39,13 @@ long long istxt(int fd){
         // itetrem sobre els bits llegits
         int i = 0;
         while (i < n) {
+            // Convertim '\n' a ',' per tenir un sol delimitador (circular buffer)
+            unsigned char c = (unsigned char)buffer[i];
+            if (c == '\n') c = ',';
+
             // 1. Intentem push al buffer circular
             if(buffer_free_bytes(&cb) > 0){
-                buffer_push(&cb, buffer[i]);
+                buffer_push(&cb, c);
                 i++; // si hi ha lloc avancem
             } 
             else {
@@ -46,13 +54,14 @@ long long istxt(int fd){
                 
                 if(elem_size > 0){
                     char num[elem_size + 1];
+                    
                     for(int k = 0; k < elem_size; k++){
-                        num[k] = buffer_pop(&cb);
+                        num[k] = (char)buffer_pop(&cb);
                     }
                     // Al no ser EOF, siempreacabaran en coma
                     num[elem_size - 1] = '\0';
-
                     sum += atoll(num);
+
                 } else {
                     //si buffer ple i sense comes tenim numero més gran que la mida del buffer
                     perror("buffer ple i no delimitador");
@@ -66,54 +75,62 @@ long long istxt(int fd){
             char num[elem_size + 1];
 
             for(int k = 0; k < elem_size; k++){
-                num[k] = buffer_pop(&cb);
+                num[k] = (char)buffer_pop(&cb);
             }
 
             if(reachedEOF){
                 //pot no haver coma al final del arxiu
                 num[elem_size] = '\0';
+
+                // si l'ultim byte era coma, la treiem per seguret
+                if(elem_size > 0 && num[elem_size - 1] == ','){
+                    num[elem_size - 1] = '\0';
+                }
+
             } else{
                 //si no EOF, acabarà en coma
                 num[elem_size - 1] = '\0';
-            
+            }
 
-            sum += atoll(num); //atoll() per evitar overflow
-        }
-
-        if(reachedEOF) break; 
+            sum += atoll(num); //atoll() per evitar overflow 
 
         }
 
+        if(reachedEOF) break;
+    }
+    free(buffer);
     buffer_deallocate(&cb);
     return sum;
-
-    }
 }
 
 long long isbin(int fd){
     // 1. Mirem mides
     //Mida del element
     //const int size_bin = sizeof(int);
-    const int size_bin = sizeof(unsigned int);
+    const int size_bin = (int)sizeof(int);
+
     //buffer multiple del enter
     int buf = SIZE - (SIZE % size_bin);
     if (buf == 0) buf = size_bin; //si < sizeof(int)
 
     //int *buffer = (int*)malloc((size_t)buf);
-    unsigned int *buffer = malloc(buf);
+    int *buffer = malloc((size_t)buf);
     if (!buffer) return 0; // Error
 
-    int sum = 0;
+    long long sum = 0;
 
-    // creiem q loop
+    // loop
     while(1){
 
         // read
         ssize_t n = read(fd, buffer, buf);
-        if (n <= 0){
-            perror("read error"); //mostra error
+
+        if (n < 0){
+            perror("read"); //mostra error
             break;
         } // Error
+
+        if(n == 0) break; //EOF
 
         // ajustem la mida si cal
         ssize_t n_ok = n - (n % size_bin);
