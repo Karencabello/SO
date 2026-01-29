@@ -86,10 +86,9 @@ long long istxt(int fd){
 
     buffer_deallocate(&cb);
     return sum;
-    
+
     }
 }
-
 
 long long isbin(int fd){
     // 1. Mirem mides
