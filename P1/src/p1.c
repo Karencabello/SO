@@ -15,7 +15,7 @@ long long istxt(int fd){
     //creem buffer lineal
     char buffer[SIZE];
 
-    long long sum = 0;
+    long long sum = 0; //long long per evitar overflow
     int reachedEOF = 0; //si 0 = no EOF, si 1 = EOF
     int elem_size;
 
@@ -32,57 +32,75 @@ long long istxt(int fd){
             break;
         }
 
-        //push al buffer circular
-        for(int i = 0; i<n; i++){
-            if(buffer_free_bytes(&cb)>0){ //si el buffer circular no està ple
+        // ietrem sobre els bits llegits
+        int i = 0;
+        while (i < n) {
+            // 1. Intentem push al buffer circular
+            if(buffer_free_bytes(&cb) > 0){
                 buffer_push(&cb, buffer[i]);
+                i++; // si hi ha lloc avancem
+            } 
+            else {
+                // 2. Buffer ple --> processem un numero per a fer espai
+                elem_size = buffer_size_next_element(&cb, ',', 0);
+                
+                if(elem_size > 0){
+                    char num[elem_size + 1];
+                    for(int k = 0; k < elem_size; k++){
+                        num[k] = buffer_pop(&cb);
+                    }
+                    // Al no ser EOF, siempreacabaran en coma
+                    num[elem_size - 1] = '\0';
+                    sum += atoll(num);
+                } else {
+                    //si buffer ple i sense comes tenim numero més gran que la mida del buffer
+                    perror("buffer ple i no delimitador");
+                    break;
+                }
             }
         }
-
-        //processar els elements complets i restants
+        //3. Processem elements restants del buffer(buffer no ple però comes o EOF)
         while((elem_size = buffer_size_next_element(&cb, ',', reachedEOF)) > 0){
-            //busquem mida de l'element utilitzant ',' com a delimitador
-            //elem_size = buffer_size_next_element(&cb, ',', reachedEOF); 
-
-            //error
-            if(elem_size == -1){
-                break;
-            }
-
+            
             char num[elem_size + 1];
 
-            //pop al circular buffer
-            for(int i = 0; i<elem_size; i++){
-                num[i] = buffer_pop(&cb);
+            for(int k = 0; k < elem_size; k++){
+                num[k] = buffer_pop(&cb);
             }
 
-            //eliminar coma
-            num[elem_size - 1] = '\0';
+            if(reachedEOF){
+                //pot no haver coma al final del arxiu
+                num[elem_size] = '\0';
+            } else{
+                //si no EOF, acabarà en coma
+                num[elem_size - 1] = '\0';
+            }
 
-            sum += atoll(num); //atoll() per a evitar overflow (retorna long long)
+            sum += atoll(num); //atoll() per evitar overflow
         }
 
-        if(reachedEOF) break; //sortir del bucle principal
-
+        if(reachedEOF) break; 
     }
 
     buffer_deallocate(&cb);
     return sum;
-
 }
+
 
 long long isbin(int fd){
     // 1. Mirem mides
     //Mida del element
-    const int size_bin = sizeof(int);
+    //const int size_bin = sizeof(int);
+    const int size_bin = sizeof(unsigned int);
     //buffer multiple del enter
     int buf = SIZE - (SIZE % size_bin);
     if (buf == 0) buf = size_bin; //si < sizeof(int)
 
-    int *buffer = (int*)malloc((size_t)buf);
+    //int *buffer = (int*)malloc((size_t)buf);
+    unsigned int *buffer = malloc(buf);
     if (!buffer) return 0; // Error
 
-    long long sum = 0;
+    int sum = 0;
 
     // creiem q loop
     while(1){
