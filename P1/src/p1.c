@@ -19,7 +19,7 @@ long long istxt(int fd){
         return 0;
     }
 
-    long long sum = 0; //long long per evitar overflow
+    int sum = 0; 
     int reachedEOF = 0; //si 0 = no EOF, si 1 = EOF
     int elem_size;
 
@@ -60,7 +60,7 @@ long long istxt(int fd){
                     }
                     // Al no ser EOF, siempreacabaran en coma
                     num[elem_size - 1] = '\0';
-                    sum += atoll(num);
+                    sum += (int)atoi(num);
 
                 } else {
                     //si buffer ple i sense comes tenim numero més gran que la mida del buffer
@@ -92,7 +92,7 @@ long long istxt(int fd){
                 num[elem_size - 1] = '\0';
             }
 
-            sum += atoll(num); //atoll() per evitar overflow 
+            sum += (int)atoi(num); 
 
         }
 
@@ -117,7 +117,7 @@ long long isbin(int fd){
     int *buffer = malloc((size_t)buf);
     if (!buffer) return 0; // Error
 
-    long long sum = 0;
+    int sum = 0;
 
     // loop
     while(1){
@@ -145,7 +145,7 @@ long long isbin(int fd){
     }
     free(buffer);
     // no cal close, ho fa el main
-    return sum;
+    return (long long)sum;
 }
 
 //main
