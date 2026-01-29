@@ -32,7 +32,7 @@ long long istxt(int fd){
             break;
         }
 
-        // ietrem sobre els bits llegits
+        // itetrem sobre els bits llegits
         int i = 0;
         while (i < n) {
             // 1. Intentem push al buffer circular
@@ -51,6 +51,7 @@ long long istxt(int fd){
                     }
                     // Al no ser EOF, siempreacabaran en coma
                     num[elem_size - 1] = '\0';
+
                     sum += atoll(num);
                 } else {
                     //si buffer ple i sense comes tenim numero més gran que la mida del buffer
@@ -74,16 +75,19 @@ long long istxt(int fd){
             } else{
                 //si no EOF, acabarà en coma
                 num[elem_size - 1] = '\0';
-            }
+            
 
             sum += atoll(num); //atoll() per evitar overflow
         }
 
         if(reachedEOF) break; 
-    }
+
+        }
 
     buffer_deallocate(&cb);
     return sum;
+    
+    }
 }
 
 
