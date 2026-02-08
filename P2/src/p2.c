@@ -29,7 +29,7 @@ loop, repeatedly reading instructions from the standard input, interpreting them
 the corresponding processes. Execution continues until an explicit termination instruction is 
 encountered. */
 
-#include "splitCommand.h" // mirar com ficar be
+#include "splitCommand.h" 
 #include "circularBuffer.h"
 
 #include <unistd.h>
@@ -39,86 +39,144 @@ encountered. */
 #include <string.h>
 #include <stdbool.h>
 
-int getLine(CircularBuffer *cb, char *line, int size){
+// Lllegeix linia de stdin 
+// retorna --> 1 si linea, 0 si EOF i res pendent i -1 si error 
+static int read_line(CircularBuffer *cb, char *line, int maxlen, int *reachedEOF){
+    char chunk[512];
 
-    int i = 0;
+    while(1){
+        // 1) Mira si linia completa cb
+        int n = buffer_size_next_element(cb, '\n', *reachedEOF);
 
-    // mentres hi hagi dades al cb --> treiem char per char fins
-    while( buffer_free_bytes(&cb) != 0 && i < size -1){
-        char ch = buffer_pop(&cb); // treiem un char de cb
-        line[i] = ch;
-        i++;
-        // fins que arribem al final de la linea
-        if(ch == '\n'){
-            line[i] == '\0';
-            return 1; // linea completa
+        if(n != -1){
+            // Ja tenim linia completa
+            int i = 0;
+
+            // copiem fins maxlen-1 (per deixar espai per '\0)
+            while(i < n && i < maxlen -1){
+                line[i++] = (char)buffer_pop(cb);
+            }
+            line[i] = '\0';
+
+            // si la linia era més llarga que maxlem descartem la resta
+            while (i < n){
+                (void)buffer_pop(cb);
+                i++;
+            }
+            return 1;
+        }
+
+        // 2) No hi ha \n (linia completa) --> llegim més bytes
+        int r = read(0, chunk, sizeof(chunk));
+
+        if (r < 0) return -1;
+
+        // 3) EOF
+        if (r == 0){
+            *reachedEOF = 1;
+            if (buffer_used_bytes(cb) == 0) return 0;
+            // si queda alguna cosa al buffer,
+            //al seguent loop n != -1 i la retornarà
+            continue;
+        }
+
+        // 4) Possem bytes llegits dins el cb
+        for(int k = 0; k < r; k++){
+            if(buffer_free_bytes(cb) == 0) return -1;
+            buffer_push(cb, (unsigned char)chunk[k]);
         }
     }
-    line[i] = '\0'; 
-    return 0; // --> no hem trobat final
 }
 
 int main(int argc, char* argv[]){
+
+    CircularBuffer cb;
+    buffer_init(&cb,1024); 
+
+    int reachedEOF = 0;
 
     bool ispipe = false;
     bool issingle = false;
     bool isconcurrent = false;
     bool isexit = false;
 
-    char type;
-    char command;
-    char argument;
-    char tmp[256]; // per si queden coses a linia
-    char line[512]; // una linea sencera
-
-    int expecting_type = 1; // per saber quan hem de mirar type
-        
-    CircularBuffer cb;
-    buffer_init(&cb,1024); // mirar si size bé
+    char mode[128];
+    char command1[512];
+    char command2[512];
 
     while(!isexit){
 
-        // read line
+        // 1. Llegim el mode
+        int ok = read_line(&cb, mode, sizeof(mode), &reachedEOF);
+        if(ok <= 0) break; // EOF o error
 
-        // 1. mirem que la linia estigui sencera
-        while(getLine(&cb, line, sizeof(line)) == 1){
-
-            // determinem execution mode
-            if(expecting_type){
-                // treiem type de la linia
-                if(line[0] == '\n' || line[0] == '\0') continue;
-                type = line[0];
-                expecting_type = 0; // ja el sabem
-            }else{
-                // mirem el command line i fer coses
-            }
-
-            expecting_type = 1;
+        // Per comparar linies treiem '\n'
+        size_t len = strlen(mode);
+        if (len > 0 && mode[len - 1] == '\n') {
+            mode[len - 1] = '\0';
         }
 
+        // 2. Reset de les flags (evitar errors)
+        ispipe = false;
+        issingle = false;
+        isconcurrent = false;
+        isexit = false;
 
+        // 3. Determinem el mode
+        if (strcmp(mode, "SINGLE") == 0){
+            issingle = true;
+        }else if(strcmp(mode, "CONCURRENT") == 0){
+            isconcurrent = true;
+        }else if(strcmp(mode, "PIPE") == 0){
+            ispipe = true;
+        }else if(strcmp(mode, "EXIT") == 0){
+            isexit = true;
+            break;
+        }
+
+        // 4. Llegim la comanda i determinem execution mode
+        ok = read_line(&cb, command1, sizeof(command1), &reachedEOF);
+        if(ok <= 0) break; // EOF o error
+
+        // split_command --> ja ens retorna arv NULL-terminated i elimina \n per fer strcmp
+        char **argv1 = split_command(command1);
+        if( !argv1 || !argv1[0]){
+            free(argv1);
+            continue;
+        } // error
+
+        //6. mode == single:
+        if (issingle){
+            //  - fer fork()
+            //  - fill: execvp(argv1[0], argv1)
+            //  - pare: waitpid
+
+        }
         
-        
+        // 7. mode == concurrent:
+        else if(isconcurrent){
+            //  - fer fork()
+            //  - fill: execvp(argv1[0], argv1)
+            //  - pare: torna al bucle i llegeix seguent mode
+        }
 
+        // 8. Si es PIPE:
+        else if(ispipe){
+            //  - llegir segona linea (command2) amb readline (com a dalt)
+            //  - fer char **argv2 = split_command(command2)
+            //  - comprovar error!
+            //  - crear pipe
+            //  - fork1 --> connectar stdout al pipe write amb dup2(fd[1], 1), execvp(argv1...)
+            //  - fork2 --> connectar stdin al pipe read amb dup2(fd[0], 0), execvp(argv2...)
+            //  - pare: tancar fd[0], fd[1] i waitpid(p1 i p2)
+            // IMPORTANT: en PIPE també has de fer free(argv2) al final.
 
+        }
+        free(argv1);
 
-        // detrmine execution mode
-
-        //if ispipe(){
-        // fer 2n proces (fork)
-
-        //dup2 per conectar-los abans execvp!!!!
-        //}
-
-        // llegir comando i arguments (següent linia)
-
-        // fork 
-
-        // al final
-        // si NO es concurrent --> waitpid
-        // fill --> replaces its program image by invoking  execvp() with the parsed command and its arguments.
 
     }
+    buffer_deallocate(&cb);
+    return 0;
 
-    //
 }
