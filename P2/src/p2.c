@@ -148,25 +148,53 @@ int main(int argc, char* argv[]){
         //6. mode == single:
         if (issingle){
             //  - fer fork()
+            pid_t pid = fork();
+        
             //  - fill: execvp(argv1[0], argv1)
+            if(pid == 0){
+                execvp(argv1[0], argv1);
+                exit(1);
+            }
             //  - pare: waitpid
-
+            else{
+                waitpid(pid, NULL, 0);
+            }
         }
         
         // 7. mode == concurrent:
         else if(isconcurrent){
             //  - fer fork()
+            pid_t pid = fork();
             //  - fill: execvp(argv1[0], argv1)
+            if(pid == 0){
+                execvp(argv1[0], argv1);
+                exit(1);
+            }
             //  - pare: torna al bucle i llegeix seguent mode
         }
 
         // 8. Si es PIPE:
         else if(ispipe){
             //  - llegir segona linea (command2) amb readline (com a dalt)
+            ok = read_line(&cb, command2, sizeof(command2), &reachedEOF);
+            if(ok <= 0) break; // EOF o error
+
             //  - fer char **argv2 = split_command(command2)
+            char **argv2 = split_command(command2);
+           
             //  - comprovar error!
+            if(!argv2 || !argv2[0]){
+                free(argv2);
+                free(argv1);
+                continue;
+            }
+
             //  - crear pipe
+            int pipe_fd[2];
+            pipe(pipe_fd);
+
             //  - fork1 --> connectar stdout al pipe write amb dup2(fd[1], 1), execvp(argv1...)
+            
             //  - fork2 --> connectar stdin al pipe read amb dup2(fd[0], 0), execvp(argv2...)
             //  - pare: tancar fd[0], fd[1] i waitpid(p1 i p2)
             // IMPORTANT: en PIPE també has de fer free(argv2) al final.
