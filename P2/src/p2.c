@@ -38,6 +38,7 @@ encountered. */
 #include <fcntl.h> 
 #include <string.h>
 #include <stdbool.h>
+#include <sys/wait.h>
 
 // Lllegeix linia de stdin 
 // retorna --> 1 si linea, 0 si EOF i res pendent i -1 si error 
@@ -151,9 +152,15 @@ int main(int argc, char* argv[]){
             pid_t pid = fork();
         
             //  - fill: execvp(argv1[0], argv1)
-            if(pid == 0){
+            if (pid < 0){
+                perror("fork");
+                free(argv1);
+                continue;
+            }
+            else if(pid == 0){
                 execvp(argv1[0], argv1);
-                exit(1);
+                perror("execvp");
+                _exit(1);
             }
             //  - pare: waitpid
             else{
@@ -166,9 +173,15 @@ int main(int argc, char* argv[]){
             //  - fer fork()
             pid_t pid = fork();
             //  - fill: execvp(argv1[0], argv1)
-            if(pid == 0){
+            if (pid < 0){
+                perror("fork");
+                free(argv1);
+                continue;
+            }
+            else if(pid == 0){
                 execvp(argv1[0], argv1);
-                exit(1);
+                perror("execvp");
+                _exit(1);
             }
             //  - pare: torna al bucle i llegeix seguent mode
         }
@@ -181,7 +194,7 @@ int main(int argc, char* argv[]){
 
             //  - fer char **argv2 = split_command(command2)
             char **argv2 = split_command(command2);
-           
+
             //  - comprovar error!
             if(!argv2 || !argv2[0]){
                 free(argv2);
@@ -194,17 +207,59 @@ int main(int argc, char* argv[]){
             pipe(pipe_fd);
 
             //  - fork1 --> connectar stdout al pipe write amb dup2(fd[1], 1), execvp(argv1...)
-            
-            //  - fork2 --> connectar stdin al pipe read amb dup2(fd[0], 0), execvp(argv2...)
-            //  - pare: tancar fd[0], fd[1] i waitpid(p1 i p2)
-            // IMPORTANT: en PIPE també has de fer free(argv2) al final.
+            pid_t p1 = fork();
+            if (p1 < 0){
+                perror("fork");
+                close(pipe_fd[0]);
+                close(pipe_fd[1]);
+                free(argv2);
+                free(argv1);
+                continue;
+            }
+            else if(p1 == 0){
+                close(pipe_fd[0]);
+                dup2(pipe_fd[1], STDOUT_FILENO);
+                close(pipe_fd[1]);
 
+                execvp(argv1[0], argv1);
+                perror("execvp");
+                _exit(1);
+            }
+            //  - fork2 --> connectar stdin al pipe read amb dup2(fd[0], 0), execvp(argv2...)
+            else{
+                pid_t p2 = fork();
+                if (p2 == - 1){
+                    perror("fork");
+                    close(pipe_fd[0]);
+                    close(pipe_fd[1]);
+                    free(argv2);
+                    free(argv1);
+                    continue;
+                }
+                else if(p2 == 0){
+                    close(pipe_fd[1]);
+                    dup2(pipe_fd[0], STDIN_FILENO);
+                    close(pipe_fd[0]);
+
+                    execvp(argv2[0], argv2);
+                    perror("execvp");
+                    _exit(1);
+                }
+                //  - pare: tancar fd[0], fd[1] i waitpid(p1 i p2)
+                else{
+                    close(pipe_fd[0]);
+                    close(pipe_fd[1]);
+
+                    waitpid(p1, NULL, 0);
+                    waitpid(p2, NULL, 0);
+
+                }
+            }
+            // IMPORTANT: en PIPE també has de fer free(argv2) al final.
+            free(argv2);
         }
         free(argv1);
-
-
     }
     buffer_deallocate(&cb);
     return 0;
-
 }
