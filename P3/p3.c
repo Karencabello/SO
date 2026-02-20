@@ -69,7 +69,12 @@ void* handler(void* arg) {
     while(bytesLeft > 0){
 
         // Decidor quants bytes llegim
-        int bytesToRead = bytesLeft < sizeof(buffer) ? bytesLeft : sizeof(buffer);
+        int bytesToRead;
+        if (bytesLeft < sizeof(buffer)) {
+            bytesToRead = bytesLeft;
+        } else {
+            bytesToRead = sizeof(buffer);
+        }
 
         int n = read(fd, buffer, bytesToRead);
 
@@ -158,7 +163,12 @@ int main(int argc, char* argv[]){
         int remainingBytes = dataSize - i * bytesPerThread;
         
         // Si és ñ'ultim thread i queden menys bytes, li donem més als que queden --> evita llegir més enllà del final de les dades
-        int bytesToRead = remainingBytes < bytesPerThread ? remainingBytes : bytesPerThread;
+        int bytesToRead;
+        if (remainingBytes < bytesPerThread) {
+            bytesToRead = remainingBytes;
+        } else {
+            bytesToRead = bytesPerThread;
+        }
 
         // Omplim la info del thread
         threadInfos[i].path = inputPath;
@@ -201,8 +211,8 @@ int main(int argc, char* argv[]){
 
     for(int i = 0; i < 256; i++){
 
-        // Construim string
-        int len = snprintf(line, sizeof(line), "%d %d\n", i, global_histogram[i]);
+        // Construim string separada per comes
+        int len = snprintf(line, sizeof(line), "%d,%d\n", i, global_histogram[i]);
         
         // Escribim al fitxer
         write(fd_out, line, len);
