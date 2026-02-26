@@ -1,3 +1,8 @@
+
+#include <pthread.h>
+#include <fcntl.h>
+
+
 int blockSize = 1024 * 16;
 // Position from which the Producer will try to read a block. This needs to be initialised to just after the header.
 int readPos; 
