@@ -31,15 +31,66 @@
 #include <unistd.h>
 
 #include "parsePGM.h"
-#include "producer.c"
+#include "circularBuffer.h"
+
+
+#define BLOCK_SIZE (1024 * 16)
+
+// Varibles globals 
+static CircularBuffer cb;
+
+// locks
+static pthread_mutex_t lock_buf;
+static pthread_cond_t not_full;
+static pthread_cond_t not_empty;
+static pthread_mutex_t lock_read;
+static pthread_mutex_t lock_hist;
+
+
+static int readpos = 0;
+static int active_producers = 0;
+static int producers_finished = 0;
+static int global_hist[256];
 
 
 typedef struct { 
     char* path; 
-    int offset;       // Offset from the beginning of the file (including header) 
-    int bytesToRead; 
-    int local_histogram[256]; // Histograma local per a cada thread
-} ThreadInfo;
+    int id;
+} ProducerArgs;
+
+typedef struct { 
+    int id;
+} ConsumerArgs;
+
+// Producer --> Llegeix blocs del fitxer i els escriu al buffer
+static void *Producer(void *arg){
+    ProducerArgs *pa = (ProducerArgs *)arg;
+
+    int fd = open(pa->path, O_RDONLY);
+
+    pthread_mutex_lock(&lock_buf);
+    active_producers--;
+    if(active_producers == 0){
+        producers_finished = 1;
+        pthread_cond_broadcast(&not_empty);
+    }
+    pthread_mutex_unlock(&lock_buf);
+    return NULL;
+
+    while(1){
+        // 1. Assignar posició de lectura 
+        int pos;
+        pthread_mutex_lock(&lock_read);
+        pos = readpos;
+        readpos += BLOCK_SIZE;
+        pthreas_mutex_unlock(&lock_read);
+
+        // 2. Llegir bloc
+        
+
+    }
+}
+
 
 void* consumer(void* arg) {
     
