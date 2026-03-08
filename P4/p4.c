@@ -47,10 +47,10 @@ static pthread_mutex_t lock_read;
 static pthread_mutex_t lock_hist;
 
 
-static int readpos = 0;
-static int active_producers = 0;
-static int producers_finished = 0;
-static int global_hist[256];
+static int readpos = 0; // Posició global de lectura del fitxer
+static int active_producers = 0; // Nombre de producers encara actius
+static int producers_finished = 0; // Flag que indica que tots els producers han acabat
+static int global_hist[256]; // Histograma global
 
 
 typedef struct { 
@@ -64,264 +64,225 @@ typedef struct {
 
 // Producer --> Llegeix blocs del fitxer i els escriu al buffer
 static void *Producer(void *arg){
+    //Convertim l'argument genèric del thread al nostre tipus
     ProducerArgs *pa = (ProducerArgs *)arg;
 
+    //obrim fitxer
     int fd = open(pa->path, O_RDONLY);
 
-    pthread_mutex_lock(&lock_buf);
-    active_producers--;
-    if(active_producers == 0){
-        producers_finished = 1;
-        pthread_cond_broadcast(&not_empty);
+    int w, h, maxv;
+    int header_size = parse_pgm_header(pa->path, &w, &h, &maxv);
+
+    if(header_size < 0){
+        printf("PGM header error\n");
+        return NULL;
     }
-    pthread_mutex_unlock(&lock_buf);
-    return NULL;
+
+    // Buffer local on el producer llegeix blocs del fitxer
+    unsigned char local_buffer[BLOCK_SIZE];
 
     while(1){
         // 1. Assignar posició de lectura 
+        /* Tots els producers comparteixen la variable global
+           readpos, que indica el següent offset del fitxer
+           que encara no s'ha llegit.
+           Fem servir lock_read per evitar que dos producers
+           agafin la mateixa posició.
+        */
         int pos;
+
         pthread_mutex_lock(&lock_read);
-        pos = readpos;
-        readpos += BLOCK_SIZE;
-        pthreas_mutex_unlock(&lock_read);
+        pos = readpos; //guardem l'offset actual
+        readpos += BLOCK_SIZE; //reservem el següent bloc
+        pthread_mutex_unlock(&lock_read);
 
-        // 2. Llegir bloc
+        // 2. Llegir bloc del fitxer
+        /* pread permet llegir des d'una posició concreta del
+           fitxer sense modificar el file pointer global
+        */
+        int n = pread(fd, local_buffer, BLOCK_SIZE, header_size + pos);
         
-
-    }
-}
-
-
-void* consumer(void* arg) {
-    
-    // 1. Convertir arg a ThreadInfo*
-    ThreadInfo* info = (ThreadInfo*)arg;
-    // -> Ja tenim path, offset, ...
-
-    // 2. Mirar buffer
-    // locks
-    // mirar
-    // unlock
-
-
-
-   
-        // 3. Actualitzar histograma local
-        for(int i = 0; i < n; i++){
-            unsigned char pixelValue = buffer[i];
-            info->local_histogram[pixelValue]++;    
+        if(n <= 0){
+            break;
         }
-        
 
-    /// --- MIRAR BE
-   // 4. Tancar coses
+        // 3. Posar dades al buffer circular
+        /* El buffer pot estar ple, així que potser hem d'esperar*/
+        int written = 0;
+
+        while(written<n){
+            //protegim acces al buffer circular
+            pthread_mutex_lock(&lock_buf);
+
+            //si buffer ple --> producer dorm fins que algun consumer trgui dades
+            while(buffer_free_bytes(&cb) == 0){
+                pthread_cond_wait(&not_full, &lock_buf);
+            }
+
+            //escribim dades al buffer circular
+            buffer_push(&cb, local_buffer[written]);
+            written++;
+
+            //avisem a consumers que hi ha dades noves
+            pthread_cond_signal(&not_empty);
+            pthread_mutex_unlock(&lock_buf);
+        }
+    }
+
     close(fd);
-    // 5. exitt
-    pthread_exit(NULL);
+
+    // 4. Aquest producer ha acabat 
+    pthread_mutex_lock(&lock_buf);
+    active_producers--;
+
+    // Si era l'últim producer
+    if(active_producers == 0){
+        producers_finished = 1;
+        pthread_cond_broadcast(&not_empty); // Despertar tots els consumers
+    }
+
+    pthread_mutex_unlock(&lock_buf);
+
+    return NULL;
+}    
+
+
+
+void* Consumer(void* arg) {
+    
+    // 1. Convertir arg a ConsumerArgs*
+    ConsumerArgs* info = (ConsumerArgs*)arg;
+    
+    //Buffer local on el consumer guarda dades extretes del buffer circular
+    unsigned char buffer[BLOCK_SIZE];
+
+    while(1){
+
+        pthread_mutex_lock(&lock_buf);
+
+        //si buffer buit i encara producers treballant --> consumer dorm
+        while(buffer_used_bytes(&cb) == 0 && !producers_finished){
+            pthread_cond_wait(&not_empty, &lock_buf);
+        }
+
+        //si buffer buit i producers han acabat --> no hi haurà més dades
+        if(buffer_used_bytes(&cb) == 0 && producers_finished){
+            pthread_mutex_unlock(&lock_buf);
+            break;
+        }
+
+        //2. treiem dades buffer
+        int n = 0;
+
+        while(n < BLOCK_SIZE && buffer_used_bytes(&cb) > 0){
+            buffer[n++] = buffer_pop(&cb);
+        }
+
+        //avisem que ara hi ha espai lliure al buffer
+        pthread_cond_signal(&not_full);
+        
+        pthread_mutex_unlock(&lock_buf);
+
+        //3. Actualitzar histograma
+
+        //protegim histograma global
+        pthread_mutex_lock(&lock_hist);
+
+        for(int i = 0; i<n; i++){
+            //cada byte és un valor de pixel (0-255)
+            global_hist[buffer[i]]++;
+        }
+
+        pthread_mutex_unlock(&lock_hist);
+    }
+    return NULL;    
 }
 
 
 int main(int argc, char* argv[]){
     
-    // 1. Llegir arguments
-    if(argc != 4){
-        fprintf(stderr, "Usage: %s <input_image.pgm> <output_histogram.txt> <num_threads>\n", argv[0]);
+    // 1. Comprovem arguments
+    if(argc != 6){
+        fprintf(stderr, "Usage: %s input.pgm output.txt producers consumers buffer_size\n", argv[0]);
         return 1;
     }
 
-    // Variables --CAnviar
+    // Arguments de command line
     char* inputPath = argv[1];
     char* outputPath = argv[2];
-    int numproducers = atoi(argv[3]);
-    int numcomsumers = atoi(argv[4]);
+
+    int num_producers = atoi(argv[3]);
+    int num_consumers = atoi(argv[4]);
     int buffer_size = atoi(argv[5]);
 
-      
+    //inicialitzem tots els producers estan actius
+    active_producers = num_producers;
 
-    int width, height, maxVal;
+    // 2.Inicialitzar buffer
 
-    // 2. Llegir header amb parse_pgm_header()
-    int headerSize = parse_pgm_header(inputPath, &width, &height, &maxVal);
+    //crear buffer circular amb la mida indicada
+    buffer_init(&cb, buffer_size);
     
-    if(headerSize < 0){
-        fprintf(stderr, "Error parsing PGM header.\n");
-        return 1;
+    // 3. Inicialitzar mutex i cond
+    pthread_mutex_init(&lock_buf, NULL);
+    pthread_mutex_init(&lock_read, NULL);
+    pthread_mutex_init(&lock_hist, NULL);
+
+    pthread_cond_init(&not_full, NULL);
+    pthread_cond_init(&not_empty, NULL);
+
+    for(int i=0;i<256;i++){
+        global_hist[i] = 0;
     }
 
-    // 3. Calcular datasize = width * height
-    int dataSize = width * height;
+    // 4. Crear threads
 
-    // 4. Dividir treball entre els threads producers --> quants blocs llegeixen, cada bloc 16,384 bytes (1024 × 16)
-    int block_producer;        
-    
-    // 5. Crear threads i passar-los la informació necessària (ThreadInfo)
-    
-    // Reservem memoria per identificadors producer
-    pthread_t* threads_prod = malloc(numproducers * sizeof(pthread_t));
+    // Arrays per guardar identificadors de threads
+    pthread_t prod[num_producers];
+    pthread_t cons[num_consumers];
 
-    // Reservem memoria per guardar info de cada producer
-    ThreadInfo* threadInfos_prod = malloc(numproducers * sizeof(ThreadInfo));
+    // Arguments de cada thread
+    ProducerArgs pa[num_producers];
+    ConsumerArgs ca[num_consumers];
 
-    // Reservem memoria per identificadors consumer
-    pthread_t* threads_cons = malloc(numcomsumers * sizeof(pthread_t));
+    // Crear producers
+    for(int i=0;i<num_producers;i++){
 
-    // Reservem memoria per guardar info de cada consumer
-    ThreadInfo* threadInfos_cons = malloc(numcomsumers * sizeof(ThreadInfo));
+        pa[i].path = inputPath;
+        pa[i].id = i;
 
-    if(!threads_prod || !threadInfos_prod || !threads_cons || !threadInfos_cons){
-        fprintf(stderr, "Memory allocation failed.\n");
-        free(threads_prod);
-        free(threadInfos_prod);
-        free(threads_cons);
-        free(threadInfos_cons);
-        return 1;
+        pthread_create(&prod[i], NULL, Producer, &pa[i]);
     }
 
-    // Histograma global --> resultat
-    int global_histogram[256] = {0}; // Inicialitzat a 0
+    // Crear consumers
+    for(int i=0;i<num_consumers;i++){
 
-    // ------------------------------------------------------------------ REVISAR ---------------------------------
-    // Crear threads producer
-    for(int i = 0; i < numproducers; i++){
+        ca[i].id = i;
 
-        // indica on comença a llegir cada producer i quants bytes ha de llegir (headersize pq volem com si fossin pixels)
-        int offset = headerSize + i * bytesPerThread;
-        
-        // Calculem quants bytes queden a partir d'aquest ultim thread
-        int remainingBytes = dataSize - i * bytesPerThread;
-        
-        // Si és ñ'ultim thread i queden menys bytes, li donem més als que queden --> evita llegir més enllà del final de les dades
-        int bytesToRead;
-        if (remainingBytes < bytesPerThread) {
-            bytesToRead = remainingBytes;
-        } else {
-            bytesToRead = bytesPerThread;
-        }
-
-        // Omplim la info del thread
-        threadInfos_prod[i].path = inputPath;
-        threadInfos_prod[i].offset = offset;
-        threadInfos_prod[i].bytesToRead = bytesToRead;
-
-        // Inicialitzem el histograma
-        for (int j = 0; j < 256; j++){
-            threadInfos_prod[i].local_histogram[j] = 0;
-        }
-        
-        // Creem el thread producer
-        if(pthread_create(&threads_prod[i], NULL, handler, &threadInfos_prod[i]) != 0){
-            fprintf(stderr, "Error creating producer thread %d\n", i);
-            free(threads_prod);
-            free(threadInfos_prod);
-            free(threads_cons);
-            free(threadInfos_cons);
-            return 1;
-        }
+        pthread_create(&cons[i], NULL, Consumer, &ca[i]);
     }
 
-    // Crear threads consumer
-    for(int i = 0; i < numcomsumers; i++){
+    // 5. Esperar threads
 
-        // indica on comença a llegir cada consumer i quants bytes ha de llegir (headersize pq volem com si fossin pixels)
-        int offset = headerSize + i * bytesPerThread;
-        
-        // Calculem quants bytes queden a partir d'aquest ultim consumer
-        int remainingBytes = dataSize - i * bytesPerThread;
-        
-        // Si és ñ'ultim consumer i queden menys bytes, li donem més als que queden --> evita llegir més enllà del final de les dades
-        int bytesToRead;
-        if (remainingBytes < bytesPerThread) {
-            bytesToRead = remainingBytes;
-        } else {
-            bytesToRead = bytesPerThread;
-        }
-
-         // Omplim la info del consumer
-         threadInfos_cons[i].path = inputPath;
-         threadInfos_cons[i].offset = offset;
-         threadInfos_cons[i].bytesToRead = bytesToRead;
-
-         // Inicialitzem el histograma
-         for (int j = 0; j < 256; j++){
-             threadInfos_cons[i].local_histogram[j] = 0;
-         }
-         
-         // Creem el thread consumer
-         if(pthread_create(&threads_cons[i], NULL, consumer, &threadInfos_cons[i]) != 0){
-             fprintf(stderr, "Error creating consumer thread %d\n", i);
-             free(threads_prod);
-             free(threadInfos_prod);
-             free(threads_cons);
-             free(threadInfos_cons);
-             return 1;
-         }
-     }
-    for(int i = 0; i < numThreads; i++){
-
-        // indica on comença a llegir cada thread i quants bytes ha de llegir (headersize pq volem com si fossin pixels)
-        int offset = headerSize + i * bytesPerThread;
-        
-        // Calculem quants bytes queden a partir d'aquest ultim thread
-        int remainingBytes = dataSize - i * bytesPerThread;
-        
-        // Si és ñ'ultim thread i queden menys bytes, li donem més als que queden --> evita llegir més enllà del final de les dades
-        int bytesToRead;
-        if (remainingBytes < bytesPerThread) {
-            bytesToRead = remainingBytes;
-        } else {
-            bytesToRead = bytesPerThread;
-        }
-
-        // Omplim la info del thread
-        threadInfos[i].path = inputPath;
-        threadInfos[i].offset = offset;
-        threadInfos[i].bytesToRead = bytesToRead;
-
-        // Inicialitzem el histograma
-        for (int j = 0; j < 256; j++){
-            threadInfos[i].local_histogram[j] = 0;
-        }
-        // Creem el thread
-        if(pthread_create(&threads[i], NULL, handler, &threadInfos[i]) != 0){
-            fprintf(stderr, "Error creating thread %d\n", i);
-            free(threads);
-            free(threadInfos);
-            return 1;
-        }
+    // Esperem que acabin tots els producers
+    for(int i=0;i<num_producers;i++){
+        pthread_join(prod[i], NULL);
     }
 
-    // 6. Esperar a que acabin i sumar els resultats parcials per obtenir l'histograma final
-    for(int i = 0; i < numThreads; i++){
-        pthread_join(threads[i], NULL);
-        // Sumar histograma local al global
-        for(int j = 0; j < 256; j++){
-            global_histogram[j] += threadInfos[i].local_histogram[j];
-        }
-    }
-    // 7. Escriure l'histograma a un fitxer de text
-    int fd_out = open(outputPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-
-    if(fd_out < 0){
-        fprintf(stderr, "Error opening output file: %s\n", outputPath);
-        free(threads);
-        free(threadInfos);
-        return 1;
+    // Esperem que acabin tots els consumers
+    for(int i=0;i<num_consumers;i++){
+        pthread_join(cons[i], NULL);
     }
 
-    // Buffer per escriure cada linia
-    char line[256];
+    // 6. Escriure histograma final
+    int fd = open(outputPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
-    for(int i = 0; i < 256; i++){
-
-        // Construim string separada per comes
-        int len = snprintf(line, sizeof(line), "%d,%d\n", i, global_histogram[i]);
-        
-        // Escribim al fitxer
-        write(fd_out, line, len);
+    // Escriure cada valor de l'histograma
+    for(int i=0;i<256;i++){
+        dprintf(fd,"%d,%d\n",i,global_hist[i]);
     }
 
-    close(fd_out);
-    free(threads);
-    free(threadInfos);
+    close(fd);
+
     return 0;
 }
