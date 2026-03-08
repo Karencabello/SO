@@ -51,7 +51,8 @@ static int readpos = 0; // Posició global de lectura del fitxer
 static int active_producers = 0; // Nombre de producers encara actius
 static int producers_finished = 0; // Flag que indica que tots els producers han acabat
 static int global_hist[256]; // Histograma global
-
+static int header_size_global = 0; 
+static int maxVal_global = 255;
 
 typedef struct { 
     char* path; 
@@ -70,13 +71,7 @@ static void *Producer(void *arg){
     //obrim fitxer
     int fd = open(pa->path, O_RDONLY);
 
-    int w, h, maxv;
-    int header_size = parse_pgm_header(pa->path, &w, &h, &maxv);
-
-    if(header_size < 0){
-        printf("PGM header error\n");
-        return NULL;
-    }
+    
 
     // Buffer local on el producer llegeix blocs del fitxer
     unsigned char local_buffer[BLOCK_SIZE];
@@ -100,7 +95,7 @@ static void *Producer(void *arg){
         /* pread permet llegir des d'una posició concreta del
            fitxer sense modificar el file pointer global
         */
-        int n = pread(fd, local_buffer, BLOCK_SIZE, header_size + pos);
+        int n = pread(fd, local_buffer, BLOCK_SIZE, header_size_global + pos);
         
         if(n <= 0){
             break;
@@ -215,6 +210,18 @@ int main(int argc, char* argv[]){
     int num_consumers = atoi(argv[4]);
     int buffer_size = atoi(argv[5]);
 
+    // llegim header
+    int w, h, maxv;
+    int header_size = parse_pgm_header(inputPath, &w, &h, &maxv);
+
+    if(header_size < 0){
+        printf("PGM header error\n");
+        return NULL;
+    }
+
+    header_size_global = header_size;
+    maxVal_global = maxv;
+
     //inicialitzem tots els producers estan actius
     active_producers = num_producers;
 
@@ -278,7 +285,7 @@ int main(int argc, char* argv[]){
     int fd = open(outputPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
     // Escriure cada valor de l'histograma
-    for(int i=0;i<256;i++){
+    for(int i = 0;i < maxVal_global; i++){
         dprintf(fd,"%d,%d\n",i,global_hist[i]);
     }
 
