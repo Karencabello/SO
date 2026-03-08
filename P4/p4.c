@@ -285,7 +285,7 @@ int main(int argc, char* argv[]){
     int fd = open(outputPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
     // Escriure cada valor de l'histograma
-    for(int i = 0;i <= maxVal_global; i++){
+    for(int i = 0;i < 255; i++){
         dprintf(fd,"%d,%d\n",i,global_hist[i]);
     }
 
