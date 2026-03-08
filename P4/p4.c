@@ -221,7 +221,7 @@ int main(int argc, char* argv[]){
     // 2.Inicialitzar buffer
 
     //crear buffer circular amb la mida indicada
-    buffer_init(&cb, buffer_size);
+    buffer_init(&cb, buffer_size * BLOCK_SIZE);
     
     // 3. Inicialitzar mutex i cond
     pthread_mutex_init(&lock_buf, NULL);
