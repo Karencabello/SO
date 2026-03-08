@@ -1,0 +1,75 @@
+1. Discuss the synchronization issues that may arise and justify the mechanisms 
+you selected to address them.
+
+Problemes de sincronització possibles:
+ - Dos producers llegint el mateix bloc si comparteixen posició de lectura 
+   (readpos) sense protecció.
+ - Producer escrivint al buffer mentre un consumer l'està llegint.
+ - Consumer llegint d'un buffer buit.
+ - Producer escrivint en un buffer ple.
+ - Consumers poden quedar-se bloquejats esperant dades quan ja no es produirà res.
+
+Mecanismes triats:
+ - lock_read (mutex) protegeix readpos perquè cada producer obtingui un bloc únic i no hi hagi solapament.
+ - lock_buf i not_full / not_empty (condicions) protegeixen el CircularBuffer.
+     - Producers esperen amb pthread_cond_wait(&not_full, ...) quan no hi ha espai.
+     - Consumers esperen amb pthread_cond_wait(&not_empty, ...) quan no hi ha dades.
+ - producers_finished i active_producers:
+     - active_producers permet saber quan acaba l'últim producer.
+     - Quan active_producers == 0, possem producers_finished = 1 i fem
+       pthread_cond_broadcast(&not_empty) per despertar consumers que podrien estar 
+       dormint i permetre'ls sortir.
+ - lock_hist protegeix global_hist[] perquè múltiples consumers no incrementin el mateix
+   contador alhora.
+
+
+2. Explain why your solution prevents race conditions, starvation, and busy waiting.
+
+Race conditions:
+  - Lectura del fitxer readpos només es llegeix/modifica amb &lock_read per tant, 
+    cap producer comparteix el mateix offset.
+  - Qualsevol buffer_push / buffer_pop es fa amb lock_buf per tant, no hi ha modificacions
+    simultànies.
+  - Ingrements del global_hist es fan amb lock_hist per tant, no es perden increments.
+
+Busy waiting:
+  - Qual el buffer està ple, el producer fa pthread_cond_wait(&not_full, lock_buf) i dorm.
+  - Quan el buffer està buit, el consumer fa pthread_cond_wait(&not_empty, lock_buf) i dorm.
+
+Starvation:
+ - Amb les condicions i un buffer compartit, no donem prioritat a cap thread.
+     - Quan hi ha espai, els producers poden continuar.
+     - Quan hi ha dades, els consumers poden continuar. 
+
+
+3. Describe how the program behaves since the first producer reaches EOF until the 
+process ends, paying special attention to consumers that may still be blocked waiting 
+for data. Note that when a producer reaches the EOF, there might be other producers which 
+are still doing them.
+
+Quan un producer arriba a EOF:
+  - El read() retorna n <= 0 i surt del bucle.
+  - Fa active_producers-- sota lock_buf.
+  - Si no era l'ultim producer, active_producers != 0
+     - No posa producers_finished = 1.
+     - No fa pthread_cond_broadcast
+
+Mentrestant:
+  - Els consumers continuen consumint el que hi hagi al buffer.
+  - Si el buffer es buida temporalment, els consumers poden quedar bloquejats a not_empty,
+    però això es normal perque encara hi ha producers actius que es despertaran quan produeixin.
+
+Quan arriba a EOF l'últim producer:
+  - Desprès de fer active_producers--, queda a 0.
+  - Marca producers_finished = 1.
+  - Fa pthread_cond_broadcast(&not_empty) i desperta a tots els consumers que 
+    estiguin bloquejats esperant dades.
+
+Què fan els consumers despertats.
+  - Cada consumer, quan es desperta:
+     1. Torna a mirar el buffer sota lock_buf
+     2. Si el buffer té dades --> les consumeix i continua.
+     3. Si el buffer està buit i producers_finished == 1 --> surt del bucle i acaba.
+  - Això garanteix que:
+     - Cap consumer es quedi dormit per sempre.
+     - El programa acaba quan realment ja no queda res per processar.
